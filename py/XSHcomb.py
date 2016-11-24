@@ -599,7 +599,7 @@ if __name__ == '__main__':
         """
         Central scipt to combine images from X-shooter for the X-shooter GRB sample.
         """
-
+        cool co,,ent
         # Load in files
         parser = argparse.ArgumentParser()
         args = parser.parse_args()
