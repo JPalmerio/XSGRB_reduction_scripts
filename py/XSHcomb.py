@@ -63,8 +63,8 @@ class XSHcomb:
         self.bpmap = bpmap
 
         # Constructs WCS
-        self.haxis = convert_air_to_vacuum(10.*((np.arange(self.header[0]['NAXIS1']) - self.header[0]['CRPIX1'])*self.header[0]['CD1_1']+self.header[0]['CRVAL1'])) #* (1. - self.header[0]['HIERARCH ESO QC VRAD BARYCOR']/3e5)
-        self.vaxis = (np.arange(self.header[0]['NAXIS2']) - self.header[0]['CRPIX2'])*self.header[0]['CD2_2']+self.header[0]['CRVAL2']
+        self.haxis = convert_air_to_vacuum(10.*(((np.arange(self.header[0]['NAXIS1'])) + 1 - self.header[0]['CRPIX1'])*self.header[0]['CDELT1']+self.header[0]['CRVAL1']))
+        self.vaxis = (np.arange(self.header[0]['NAXIS2']) - self.header[0]['CRPIX2'])*self.header[0]['CDELT2']+self.header[0]['CRVAL2']
 
         if len(em_sky) == 0:
             print("No sky-frame given ... Using science image collapsed in the spatial direction ...")
@@ -92,16 +92,18 @@ class XSHcomb:
 
         pix_offsetx, pix_offsety = np.ones_like(img_nr_list), np.ones_like(img_nr_list)
         naxis1, naxis2 = np.ones_like(img_nr_list), np.ones_like(img_nr_list)
+        exptimes = np.ones_like(img_nr_list)
         full_edge_mask = self.bpmap.copy()
         for ii, kk in enumerate(self.fitsfile):
             # Arrays to contain axis indices
             naxis1[ii] = self.header[ii]['NAXIS1']
             naxis2[ii] = self.header[ii]['NAXIS2']
+            exptimes[ii] = self.header[ii]['EXPTIME']
 
         for ii, kk in enumerate(self.fitsfile):
             try:
-                pix_offsetx[ii] = int(round(self.header[ii]['HIERARCH ESO SEQ CUMOFF X'] / self.header[ii]['CD1_1']))
-                pix_offsety[ii] = int(round(self.header[ii]['HIERARCH ESO SEQ CUMOFF Y'] / self.header[ii]['CD2_2']))
+                pix_offsetx[ii] = int(round(self.header[ii]['HIERARCH ESO SEQ CUMOFF X'] / self.header[ii]['CDELT1']))
+                pix_offsety[ii] = int(round(self.header[ii]['HIERARCH ESO SEQ CUMOFF Y'] / self.header[ii]['CDELT2']))
             except KeyError:
                 print("No header keyword: HIERARCH ESO SEQ CUMOFF X or HIERARCH ESO SEQ CUMOFF Y")
                 pix_offsetx[ii] = 0
@@ -115,7 +117,7 @@ class XSHcomb:
             ys = np.arange(naxis2[ii]) + 1
 
             # Masking 1 pixel edges in frames.
-            edge_len = 1
+            edge_len = 2
             if NOD:
                 edge_len = 0
             edge_mask = (ys > max(ys) - edge_len) | (ys < min(ys) + edge_len)
@@ -230,8 +232,6 @@ class XSHcomb:
 
         # Calculate mean and error
         mean, error, bpmap = avg(flux_cube, error_cube, mask_cube, axis=2, weight_map = weight_cube)
-        # mean, error, bpmap = avg(flux_cube, error_cube, mask_cube, axis=2, weight=True)
-        # mean, error, bpmap = avg(flux_cube, error_cube, mask_cube, axis=2)
 
         # Assign new flux and error
         mean[np.isnan(mean)] = 0
@@ -253,7 +253,7 @@ class XSHcomb:
         self.fitsfile[2].data = self.bpmap
 
         # Update WCS
-        self.header["CRVAL2"] = self.header["CRVAL2"] - (max(pix_offsety - min(pix_offsety)))  * self.header["CD2_2"]
+        self.header["CRVAL2"] = self.header["CRVAL2"] - (max(pix_offsety - min(pix_offsety)))  * self.header["CDELT2"]
 
         if not same:
             # Simply combined image
@@ -275,7 +275,7 @@ class XSHcomb:
             self.fitsfile.writeto(self.base_name[:-3]+"_combined.fits", clobber =True)
 
         # Update WCS axis
-        self.vaxis = (np.arange(self.header['NAXIS2']) - self.header['CRPIX2'])*self.header['CD2_2']+self.header['CRVAL2']
+        self.vaxis = (np.arange(self.header['NAXIS2']) - self.header['CRPIX2'])*self.header['CDELT2']+self.header['CRVAL2']
 
         mask = (self.flux > -1e-17) & (self.flux < 1e-17)
         hs, ed = np.histogram(self.flux[mask], bins=1000000)
@@ -310,8 +310,8 @@ class XSHcomb:
             print("")
             print('Subtracting sky....')
             # Make trace mask
-            seeing_pix = seeing / self.header['CD2_2']
-            trace_offsets = np.append(np.array([0]), np.array(additional_masks) / self.header['CD2_2'])
+            seeing_pix = seeing / self.header['CDELT2']
+            trace_offsets = np.append(np.array([0]), np.array(additional_masks) / self.header['CDELT2'])
             traces = []
             for ii in trace_offsets:
                 traces.append(self.header['NAXIS2']/2 + ii)
@@ -336,9 +336,6 @@ class XSHcomb:
                 # Combine masks
                 mask = mask | clip_mask
 
-                # Subtract simple median sky
-                # self.flux[:, ii] -= np.ma.median(self.flux[:, ii][~mask])
-
                 # Subtract polynomial estiamte of sky
                 vals = self.flux[:, ii][~mask]
                 errs = self.error[:, ii][~mask]
@@ -361,16 +358,12 @@ class XSHcomb:
                     pl.xlabel("Spatial index")
                     pl.ylabel("Flux density")
                     pl.title("Quality test: Sky estimate at index: "+str(ii) )
-                    # pl.savefig("Sky_estimate.pdf")
                     pl.show()
 
                 sky_background[:, ii] = chebfitval
-                # sky_background_error[:, ii] = np.tile(np.std(vals - chebfitval[~mask]),  (1, self.header['NAXIS2']))
 
             # Subtract sky and average error
             self.flux = self.flux - convolve(sky_background, Gaussian2DKernel(1.0))
-            # self.error = convolve(sky_background_error, Gaussian2DKernel(1.0))
-            # self.error = np.sqrt(self.error**2. + convolve(sky_background_error, Gaussian2DKernel(1.0))**2.)
 
         self.em_sky = np.sum(self.em_sky, axis=0)
         # Calibrate wavlength solution
@@ -379,8 +372,6 @@ class XSHcomb:
         self.bpmap += self.sky_mask
         self.flux[self.bpmap.astype("bool")] = 0
         self.fitsfile.header = self.header
-        # self.fitsfile[1].header["CRVAL2"], self.fitsfile[2].header["CRVAL2"] = self.fitsfile[0].header["CRVAL2"], self.fitsfile[0].header["CRVAL2"]
-
         self.fitsfile[0].data, self.fitsfile[1].data = self.flux, self.error
         self.fitsfile[2].data = self.bpmap
         self.fitsfile.writeto(self.base_name+"skysub.fits", clobber =True)
@@ -461,9 +452,9 @@ class XSHcomb:
             dlambda = f(self.haxis)
 
             # PSF FWHM in pixels
-            d_pix = dlambda/(10*self.header['CD1_1'])
+            d_pix = dlambda/(10*self.header['CDELT1'])
             # Corresponding seeing PSF FWHM in arcsec
-            spatial_psf = d_pix*self.header['CD2_2']
+            spatial_psf = d_pix*self.header['CDELT2']
 
             # Index of zero-deviation
             zd_idx = find_nearest(self.haxis, zdwl)
@@ -517,7 +508,6 @@ class XSHcomb:
         ax2.set_ylabel("Cross correlation", color="r")
         ax2.yaxis.set_label_position("right")
         ax2.yaxis.set_major_formatter(pl.NullFormatter())
-        # pl.title("Quality test: Wavelength calibration")
         ax2.legend(loc=2)
         pl.savefig(self.base_name+"Wavelength_cal.pdf")
         pl.clf()
@@ -541,7 +531,7 @@ def run_combination(args):
             response_2d = [fits.open(ii)[0].data for ii in files]
             files = glob.glob(args.filepath+"reduced_data/"+args.OB+"/"+args.arm+"/*/*SCI_SLIT_FLUX_MERGE2D_*.fits")
             response_2d = [fits.open(kk)[0].data/response_2d[ii] for ii, kk in enumerate(files)]
-            np.savetxt(args.filepath+"reduced_data/"+args.OB+"/"+args.arm+"/response_function.dat", np.median(np.median(response_2d, axis=1), axis=0))
+            np.savetxt(args.filepath+"reduced_data/"+args.OB+"/"+args.arm+"/response_function.dat", np.nanmean(np.nanmean(response_2d, axis=1), axis=0))
         if args.mode == "NODSTARE":
             sky2d = glob.glob(args.filepath+"reduced_data/"+args.OB+"/"+args.arm+"/*/*SKY_SLIT_MERGE2D_*.fits")
             sky2d = np.array([fits.open(ii)[0].data for ii in sky2d]) * np.array(response_2d)
@@ -584,11 +574,7 @@ def main(argv):
         print('When using arguments, you need to supply a filepath. Stopping execution')
         exit()
 
-
     print("Running combination on files: " + args.filepath)
-    # print("with options: ")
-    # # print("bin_elements = " + str(args.bin_elements))
-    # print("")
 
     run_combination(args)
 
@@ -611,7 +597,7 @@ if __name__ == '__main__':
 
         arms = ["UVB", "VIS", "NIR"] # # UVB, VIS, NIR, ["UVB", "VIS", "NIR"]
 
-        combine = False
+        combine = False # True False
         args.OB = "OB1"
 
         for ii in arms:
@@ -625,7 +611,7 @@ if __name__ == '__main__':
 
             args.use_master_response = False # True False
             args.additional_masks = []
-            args.seeing = 1.0
+            args.seeing = 2.0
             args.repeats = 1
 
             run_combination(args)

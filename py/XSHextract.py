@@ -25,6 +25,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from util import *
 from XSHcomb import XSHcomb, avg
 
+
 class XSHextract(XSHcomb):
     """
     Class to contain XSH spectrscopy extraction.
@@ -93,7 +94,6 @@ class XSHextract(XSHcomb):
             self.slit_width = float(self.header['HIERARCH ESO INS OPTI4 NAME'].split("x")[0])
         elif self.header['HIERARCH ESO SEQ ARM'] == "NIR":
             self.slit_width = float(self.header['HIERARCH ESO INS OPTI5 NAME'].split("x")[0])
-
 
     def get_trace_profile(self, lower_element_nr = 1, upper_element_nr = 1, pol_degree = [3, 2, 2], bin_elements=100, adc_corr_guess=True, p0 = None, two_comp=False):
 
@@ -195,7 +195,7 @@ class XSHextract(XSHcomb):
                 pl.legend()
                 pp.savefig()
                 pl.clf()
-                # pl.show()
+
             except:
                 print("Fitting error at binned image index: "+str(ii)+". Replacing fit value with guess and set fit error to 10^10")
                 popt, pcov = p0, np.diag(1e10*np.ones_like(p0))
@@ -205,7 +205,6 @@ class XSHextract(XSHcomb):
         # Mask elements too close to guess, indicating a bad fit.
         ecen[:lower_element_nr] = 1e10
         ecen[-upper_element_nr:] = 1e10
-
 
         ecen[abs(cen/ecen) > abs(np.nanmean(cen/ecen)) + 5*np.nanstd(cen/ecen)] = 1e10
         ecen[abs(amp - p0[0]) < p0[0]/100] = 1e10
@@ -238,8 +237,6 @@ class XSHextract(XSHcomb):
         # Sigma-clip outliers in S/N-space
         esig[ecen == 1e10] = 1e10
         esig[sig < 0.01] = 1e10
-        # snsig = sig/esig
-        # esig[snsig > 100 ] = 1e10
 
         fitsig = chebyshev.chebfit(bin_haxis, sig, deg=pol_degree[1], w=1/esig**2)
         fitsigval = chebyshev.chebval(self.haxis, fitsig)
@@ -255,7 +252,7 @@ class XSHextract(XSHcomb):
 
         # Sigma-clip outliers in S/N-space
         egam[ecen == 1e10] = 1e10
-        egam[gam < 1e-10] = 1e10
+        egam[gam < 1e-5] = 1e10
         # sngam = gam/egam
         # egam[sngam > 100 ] = 1e10
         fitgam = chebyshev.chebfit(bin_haxis, gam, deg=pol_degree[2], w=1/egam**2)
@@ -274,7 +271,6 @@ class XSHextract(XSHcomb):
         from scipy import interpolate, signal
 
         eamp[ecen == 1e10] = 1e10
-        # eamp[esig == 1e10] = 1e10
         amp[amp < 0] = 1e-20
         amp = signal.medfilt(amp, 5)
         mask = ~(eamp == 1e10)
@@ -285,7 +281,6 @@ class XSHextract(XSHcomb):
         # Plotting for quality control
         ax4.errorbar(bin_haxis, amp, fmt=".k", capsize=0, elinewidth=0.5, ms=5)
         ax4.plot(self.haxis, fitampval)
-        # ax4.set_ylim((0, 1))
         ax4.set_ylabel("Profile amplitude / [counts/s]")
         ax4.set_title("Quality test: Profile amplitude estimate")
         ax4.set_xlabel(r"Wavelength / [$\mathrm{\AA}$]")
@@ -327,11 +322,11 @@ class XSHextract(XSHcomb):
             self.slitcorr = slitcorr
 
         # Applying updated wavelength solution. This also includes barycentric correction etc.
-        self.haxis = 10.*(((np.arange(self.header['NAXIS1'])) - self.header['CRPIX1'])*self.header['CDELT1']+self.header['CRVAL1']) * self.header['WAVECORR'] * (1 + self.header['HIERARCH ESO QC VRAD BARYCOR']/3e5)
-        self.vaxis =  (((np.arange(self.header['NAXIS2'])) - self.header['CRPIX2'])*self.header['CD2_2']+self.header['CRVAL2'])
+        self.haxis = 10.*(((np.arange(self.header['NAXIS1'])) + 1 - self.header['CRPIX1'])*self.header['CDELT1']+self.header['CRVAL1']) * self.header['WAVECORR'] * (1 + self.header['HIERARCH ESO QC VRAD BARYCOR']/3e5)
+        self.vaxis =  ((np.arange(self.header['NAXIS2'])) - self.header['CRPIX2'])*self.header['CDELT2'] + self.header['CRVAL2']
 
         # Finding extraction radius
-        seeing = (extraction_bounds[1] - extraction_bounds[0])*self.header['CD2_2']
+        seeing = (extraction_bounds[1] - extraction_bounds[0])*self.header['CDELT2']
 
         # Construct spatial PSF to be used as weight in extraction
         if optimal:
@@ -396,7 +391,6 @@ class XSHextract(XSHcomb):
         bpmap[1:][mask] = 1
 
         extinc_corr, ebv = correct_for_dust(self.haxis, self.header["RA"], self.header["DEC"])
-        # extinc_corr, ebv = np.ones_like(self.haxis), 1
         print("Applying the following extinction correction for queried E(B-V):"+str(ebv))
         print(extinc_corr)
         spectrum *= extinc_corr
@@ -442,8 +436,6 @@ class XSHextract(XSHcomb):
             tell_file = np.genfromtxt(glob.glob("/".join(self.base_name.split("/")[:-1])+"/"+ self.base_name.split("/")[-1][:3] + self.base_name.split("/")[-1][3:-6]+"*telluric*dat")[0])
             trans = tell_file[:, 2]/tell_file[:, 1]
             trans[np.isinf(trans)] = 1
-            # spectrum *= trans
-            # errorspectrum *= trans
             dt.append(("telluric_correction", np.float64))
             out_data.append(trans)
             formatt.append('%10.6e')
@@ -572,12 +564,10 @@ if __name__ == '__main__':
         Central scipt to extract spectra from X-shooter for the X-shooter GRB sample.
         """
         data_dir = "/Users/jselsing/Work/work_rawDATA/XSGRB/"
-        object_name = data_dir + "GRB111209A/"
-        # object_name = "/Users/jselsing/Work/work_rawDATA/HZSN/iPTF16geu/"
+        object_name = data_dir + "GRB161023A/"
 
-        # arm = "UVB" # UVB, VIS, NIR
         arms = ["UVB", "VIS", "NIR"] # # UVB, VIS, NIR, ["UVB", "VIS", "NIR"]
-        OB = "OB2"
+        OB = "OB1"
 
         for ii in arms:
             # Construct filepath
@@ -590,26 +580,26 @@ if __name__ == '__main__':
             parser = argparse.ArgumentParser()
             args = parser.parse_args()
             args.filepath = files[0]
-            args.response_path = None # "/Users/jselsing/Work/work_rawDATA/XSGRB/GRB100814A/RESPONSE_MERGE1D_SLIT_UVB.fits"
+            args.response_path = None # "/Users/jselsing/Work/work_rawDATA/XSGRB/GRB100814A/reduced_data/OB3/RESPONSE_MERGE1D_SLIT_UVB.fits", None
             args.use_master_response = False # True, False
 
             args.optimal = True # True, False
-            args.extraction_bounds = (40, 60)
+            args.extraction_bounds = (40, 60 )
             if ii == "NIR":
-                args.extraction_bounds = (30, 45)
+                args.extraction_bounds = (33, 46)
 
             args.slitcorr = True # True, False
             args.plot_ext = True # True, False
-            args.adc_corr_guess = False # True, False
+            args.adc_corr_guess = True # True, False
             if ii == "UVB":
-                args.edge_mask = (10, 1)
+                args.edge_mask = (10, 5)
             elif ii == "VIS":
-                args.edge_mask = (1, 1)
+                args.edge_mask = (5, 5)
             elif ii == "NIR":
-                args.edge_mask = (1, 20)
+                args.edge_mask = (5, 10)
 
-            args.pol_degree = [3, 2, 2]
-            args.bin_elements = 200
+            args.pol_degree = [4, 4, 4]
+            args.bin_elements = 400
             args.p0 = None # [1e-18, -2.5, 0.3, 0.1, -1e-18, 0], [1e-18, -2.5, 0.3, 0.1, -1e-18, 0, 1e-18, 2, 0.5, 0.1], None
             args.two_comp = False  # True, False
             run_extraction(args)
